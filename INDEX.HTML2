@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>La Energía del Sol en tus Manos</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css"></link>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .text-rederar-logo {
+      font-family: 'Inter', sans-serif;
+      font-size: 4rem;
+      font-weight: 900;
+      text-align: center;
+      /* Adjusted for sun color gradient */
+      background: linear-gradient(to bottom, #FACC15 0%, #FACC15 33.33%, #FDE047 33.33%, #FDE047 66.66%, #FACC15 66.66%, #FACC15 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      -webkit-text-stroke: 2px #FEF3C7; /* Lighter yellow for stroke */
+      text-stroke: 2px #FEF3C7;
+      display: inline-block;
+      line-height: 1;
+    }
+
+    .highlight-overlay {
+      background-color: rgba(255, 255, 0, 0.3);
+      border-radius: 0.75rem;
+      transition: opacity 0.5s ease-in-out;
+      pointer-events: none;
+      z-index: 10;
+      position: absolute;
+    }
+  </style>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-black flex items-center justify-center min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const App = () => {
+      // States for bimonthly consumption
+      const [janFebConsumption, setJanFebConsumption] = useState('');
+      const [marAprConsumption, setMarAprConsumption] = useState('');
+      const [mayJunConsumption, setMayJunConsumption] = useState('');
+      const [julAugConsumption, setJulAugConsumption] = useState('');
+      const [sepOctConsumption, setSepOctConsumption] = useState('');
+      const [novDecConsumption, setNovDecConsumption] = useState('');
+
+      // kwhCost is no longer collected from user input, defaults to 0 for calculation purposes
+      const [kwhCost, setKwhCost] = useState(0.0); 
+      const [systemType, setSystemType] = useState(''); // 'on_grid' or 'off_grid'
+      const [phaseType, setPhaseType] = useState(''); // 'monofasica' or 'trifasica'
+      const [selectedProvinceHSP, setSelectedProvinceHSP] = useState('');
+      const [locality, setLocality] = useState('');
+      const [hasNorthShadows, setHasNorthShadows] = useState(''); // New state for north shadows
+      const [roofType, setRoofType] = useState(''); // New state for roof type
+      const [availableSpace, setAvailableSpace] = useState(''); // New state for available space
+      const [roofCondition, setRoofCondition] = useState(''); // New state for roof condition
+      const [autonomyDays, setAutonomyDays] = useState('1'); 
+      const [appliancesToPower, setAppliancesToPower] = useState(''); // New state for appliances to power
+      
+      // Changed from estimatedMonthlySavings to estimatedMonthlyKwhSaved
+      const [estimatedMonthlyKwhSaved, setEstimatedMonthlyKwhSaved] = useState(0.0); 
+      const [estimatedAnnualKwhSaved, setEstimatedAnnualKwhSaved] = useState(0.0); // New state for annual kWh saved
+      
+      const [co2AvoidedMonthly, setCo2AvoidedMonthly] = useState(0.0);
+      const [investmentEstimate, setInvestmentEstimate] = useState(null); // This will no longer include total_cost
+      const [showCalculator, setShowCalculator] = useState(false);
+      const [calculationError, setCalculationError] = useState('');
+      const [hasCalculatedAndSent, setHasCalculatedAndSent] = useState(false);
+      
+      // Initialize simulatedGenerationData with default values so it's always visible
+      const [simulatedGenerationData, setSimulatedGenerationData] = useState([
+        { month: 'Julio (Invierno)', data: { '9h': '0.00', '12h': '0.00', '15h': '0.00' } },
+        { month: 'Octubre (Primavera)', data: { '9h': '0.00', '12h': '0.00', '15h': '0.00' } },
+        { month: 'Enero (Verano)', data: { '9h': '0.00', '12h': '0.00', '15h': '0.00' } }
+      ]);
+
+      const mainContainerRef = useRef(null);
+      const logoLinkRef = useRef(null); 
+      const titleRef = useRef(null);
+      const resultsSectionRef = useRef(null);
+      const highlightTimeoutRef = useRef(null);
+
+      const [showHighlightOverlay, setShowHighlightOverlay] = useState(false);
+      const [highlightOverlayStyle, setHighlightOverlayStyle] = useState({});
+
+      const CO2_EMISSION_ELECTRICITY_KG_PER_KWH = 0.4;
+      const OVERSIZING_FACTOR = 1.10; // 10% oversizing
+
+      // Removed monetary constants
+      // const COST_PER_550W_PANEL = 350000;
+      // const COST_PER_KW_ON_GRID_INVERTER = 400000;
+      // const COST_PER_KW_OFF_GRID_INVERTER = 600000;
+      // const COST_PER_KWH_BATTERY_STORAGE = 200000;
+      // const ACCESSORY_FACTOR = 1.2;
+
+      const HSP_DATA = {
+        'Entre Ríos': 4.5,
+        'Buenos Aires (CABA/GBA)': 3.8,
+        'Córdoba': 4.8,
+        'Santa Fe': 4.7,
+        'Mendoza': 5.2,
+        'San Juan': 5.3,
+        'Salta': 5.5,
+        'Jujuy': 5.4,
+        'Neuquén': 3.5,
+        'Río Negro': 3.3,
+        'Chubut': 3.0,
+        'Santa Cruz': 2.8,
+        'Tierra del Fuego': 2.5,
+        'Corrientes': 4.3,
+        'Misiones': 4.2,
+        'Chaco': 4.8,
+        'Formosa': 4.9,
+        'Santiago del Estero': 5.0,
+        'Tucumán': 5.1,
+        'Catamarca': 5.2,
+        'La Rioja': 5.3,
+        'San Luis': 4.9,
+        'La Pampa': 4.0,
+        'Default': 4.5
+      };
+
+      const sendWhatsAppMessage = (isAutomaticSend = false) => {
+        if (isAutomaticSend && hasCalculatedAndSent) {
+          return;
+        }
+
+        let whatsappMessage = '¡Hola! Me gustaría recibir asesoramiento sobre energía fotovoltaica.';
+        
+        if (investmentEstimate && systemType && phaseType && selectedProvinceHSP && locality && hasNorthShadows && roofType && availableSpace && roofCondition) {
+          whatsappMessage += `\n\n--- Datos de Simulación Fotovoltaica ---`;
+          
+          if (systemType === 'on_grid') {
+            whatsappMessage += `\nConsumo bimestral (según factura):`;
+            whatsappMessage += `\n  Ene-Feb: ${janFebConsumption} kWh`;
+            whatsappMessage += `\n  Mar-Abr: ${marAprConsumption} kWh`;
+            whatsappMessage += `\n  May-Jun: ${mayJunConsumption} kWh`;
+            whatsappMessage += `\n  Jul-Ago: ${julAugConsumption} kWh`;
+            whatsappMessage += `\n  Sep-Oct: ${sepOctConsumption} kWh`;
+            whatsappMessage += `\n  Nov-Dic: ${novDecConsumption} kWh`;
+          } else if (systemType === 'off_grid') {
+            whatsappMessage += `\nElectrodomésticos y otros a alimentar (formato Horas, Watts): ${appliancesToPower || 'No especificado'}.`;
+            whatsappMessage += `\nDías de autonomía deseados (días sin sol): ${autonomyDays} día(s).`;
+          }
+
+          whatsappMessage += `\nTipo de sistema: ${systemType === 'on_grid' ? 'Conectado a Red' : 'Autónomo'}.`;
+          whatsappMessage += `\nTipo de conexión: ${phaseType === 'monofasica' ? 'Monofásica' : 'Trifásica'}.`;
+          whatsappMessage += `\nProvincia/Región seleccionada (HSP): ${selectedProvinceHSP} (${HSP_DATA[selectedProvinceHSP]} HSP).`;
+          whatsappMessage += `\nLocalidad: ${locality}.`;
+          whatsappMessage += `\n¿Tiene sombras mirando al norte?: ${hasNorthShadows === 'yes' ? 'Sí' : 'No'}.`;
+          whatsappMessage += `\nTipo de techo/espacio disponible: ${roofType}.`;
+          whatsappMessage += `\nEspacio disponible para paneles: ${availableSpace}.`;
+          whatsappMessage += `\nCondición del techo/estructura: ${roofCondition}.`; 
+          
+          // Updated WhatsApp message for kWh saved, removed monetary reference
+          whatsappMessage += `\nSegún la simulación, su sistema podría generar y no consumir de la red ${estimatedMonthlyKwhSaved} kWh mensualmente y evitar ${co2AvoidedMonthly} kg de CO2.`;
+          whatsappMessage += `\nCapacidad del sistema estimada: ${investmentEstimate.capacity}.`; // Removed monetary cost
+          whatsappMessage += `\nComponentes estimados: ${investmentEstimate.components.join(', ')}.`;
+
+          if (simulatedGenerationData.length > 0) {
+            whatsappMessage += `\n\n--- Simulación de Energía Generada (kWh/día) ---`;
+            simulatedGenerationData.forEach(monthData => {
+              whatsappMessage += `\n${monthData.month}:`;
+              whatsappMessage += `\n  9h: ${monthData.data['9h']} kWh`;
+              whatsappMessage += `\n  12h: ${monthData.data['12h']} kWh`;
+              whatsappMessage += `\n  15h: ${monthData.data['15h']} kWh`;
+            });
+            whatsappMessage += `\n(Valores promedio estimados para un día típico del mes)`;
+          }
+
+          whatsappMessage += `\n\nIMPORTANTE: Este cálculo se basa en promedios regionales de Horas Solares Pico (HSP). Para un dimensionamiento exacto y un presupuesto definitivo, es indispensable un estudio técnico en el punto específico de su dirección y localidad, considerando factores como orientación, inclinación y posibles sombras.`;
+        } else if (!isAutomaticSend) {
+          whatsappMessage += `\n\n(No se han calculado datos específicos, consulta general.)`;
+        }
+
+        const whatsappLink = `https://api.whatsapp.com/send/?phone=543434802264&text=${encodeURIComponent(whatsappMessage)}`;
+        window.open(whatsappLink, '_blank');
+        
+        if (isAutomaticSend) {
+          setHasCalculatedAndSent(true);
+        }
+      };
+
+      const calculatePhotovoltaic = () => {
+        setCalculationError('');
+        setEstimatedMonthlyKwhSaved(0.0); // Reset
+        setEstimatedAnnualKwhSaved(0.0); // Reset
+        setCo2AvoidedMonthly(0.0);
+        setInvestmentEstimate(null);
+        setHasCalculatedAndSent(false);
+        setSimulatedGenerationData([ // Reset simulation data to initial zeros
+          { month: 'Julio (Invierno)', data: { '9h': '0.00', '12h': '0.00', '15h': '0.00' } },
+          { month: 'Octubre (Primavera)', data: { '9h': '0.00', '12h': '0.00', '15h': '0.00' } },
+          { month: 'Enero (Verano)', data: { '9h': '0.00', '12h': '0.00', '15h': '0.00' } }
+        ]);
+
+        if (highlightTimeoutRef.current) {
+          clearTimeout(highlightTimeoutRef.current);
+        }
+        setShowHighlightOverlay(false);
+
+        const daysAutonomy = parseInt(autonomyDays);
+
+        if (!systemType) {
+          setCalculationError('Por favor, seleccione el tipo de sistema (On-Grid/Off-Grid).');
+          return;
+        }
+        if (!selectedProvinceHSP) {
+          setCalculationError('Por favor, seleccione su provincia/región para el cálculo de HSP.');
+          return;
+        }
+        if (!locality.trim()) {
+          setCalculationError('Por favor, ingrese su localidad.');
+          return;
+        }
+        if (!hasNorthShadows) {
+          setCalculationError('Por favor, indique si tiene sombras mirando al norte.');
+          return;
+        }
+        if (!roofType) {
+          setCalculationError('Por favor, seleccione el tipo de techo o espacio disponible.');
+          return;
+        }
+        if (!availableSpace.trim()) {
+          setCalculationError('Por favor, indique el espacio disponible para paneles.');
+          return;
+        }
+        if (!roofCondition) { 
+          setCalculationError('Por favor, seleccione la condición o antigüedad de su techo/estructura.');
+          return;
+        }
+        if (!phaseType) {
+          setCalculationError('Por favor, seleccione el tipo de conexión (Monofásica/Trifásica).');
+          return;
+        }
+
+        let annualConsumption = 0;
+        let dailyKwhNeeded = 0;
+
+        if (systemType === 'on_grid') {
+          const consumptionValues = [
+            parseFloat(janFebConsumption),
+            parseFloat(marAprConsumption),
+            parseFloat(mayJunConsumption),
+            parseFloat(julAugConsumption),
+            parseFloat(sepOctConsumption),
+            parseFloat(novDecConsumption)
+          ];
+
+          for (let i = 0; i < consumptionValues.length; i++) {
+            if (isNaN(consumptionValues[i]) || consumptionValues[i] < 0) {
+              setCalculationError(`Por favor, ingrese un consumo válido para el bimestre ${i * 2 + 1}-${i * 2 + 2}.`);
+              return;
+            }
+          }
+          annualConsumption = consumptionValues.reduce((sum, current) => sum + current, 0);
+          if (annualConsumption <= 0) {
+            setCalculationError('El consumo anual total debe ser mayor a cero.');
+            return;
+          }
+          dailyKwhNeeded = annualConsumption / 365;
+        } else if (systemType === 'off_grid') {
+          if (isNaN(daysAutonomy) || daysAutonomy <= 0) {
+            setCalculationError('Para sistemas autónomos, por favor ingrese un número válido de días de autonomía.');
+            return;
+          }
+          if (!appliancesToPower.trim()) {
+            setCalculationError('Para sistemas autónomos, por favor detalle los electrodomésticos y otros elementos a alimentar.');
+            return;
+          }
+
+          let totalDailyWatts = 0;
+          const applianceEntries = appliancesToPower.split(';').map(entry => entry.trim()).filter(entry => entry.length > 0);
+
+          if (applianceEntries.length === 0) {
+            setCalculationError('Por favor, detalle al menos un electrodoméstico o consumo en el formato especificado.');
+            return;
+          }
+
+          for (const entry of applianceEntries) {
+            const parts = entry.split(':').map(p => p.trim());
+            if (parts.length < 2) {
+              setCalculationError(`Formato incorrecto en el detalle de electrodomésticos: "${entry}". Use "Nombre: Horas, Watts".`);
+              return;
+            }
+            const consumptionParts = parts[1].split(',').map(p => p.trim());
+            if (consumptionParts.length < 2) {
+              setCalculationError(`Formato incorrecto en el consumo de "${parts[0]}". Use "Horas, Watts".`);
+              return;
+            }
+
+            const hoursStr = consumptionParts[0];
+            const wattsStr = consumptionParts[1];
+
+            let hours = parseFloat(hoursStr);
+            let watts = 0;
+
+            if (wattsStr.includes('x')) {
+              const [singleWatt, numUnits] = wattsStr.split('x').map(Number);
+              if (isNaN(singleWatt) || isNaN(numUnits)) {
+                setCalculationError(`Formato de Watts incorrecto en "${parts[0]}". Use "Watts" o "WattsxUnidades".`);
+                return;
+              }
+              watts = singleWatt * numUnits;
+            } else {
+              watts = parseFloat(wattsStr);
+            }
+
+            if (isNaN(hours) || hours < 0 || isNaN(watts) || watts < 0) {
+              setCalculationError(`Valores numéricos inválidos en el detalle de "${parts[0]}".`);
+              return;
+            }
+            totalDailyWatts += (watts * hours);
+          }
+          dailyKwhNeeded = totalDailyWatts / 1000; // Convert Wh to kWh
+          annualConsumption = totalDailyWatts / 1000 * 365; // Estimate annual consumption for savings calculation
+        }
+
+        const currentHSP = HSP_DATA[selectedProvinceHSP] || HSP_DATA['Default'];
+
+        const monthlyKwhConsumption = annualConsumption / 12;
+
+        const kwpRequired = (dailyKwhNeeded / currentHSP) * OVERSIZING_FACTOR;
+
+        const panelWattage = 550;
+        let numPanels = Math.ceil((kwpRequired * 1000) / panelWattage);
+        if (numPanels < 1) numPanels = 1;
+
+        let inverterSizeKw = Math.max(2.5, Math.ceil(kwpRequired));
+
+        // Removed systemCost calculation as monetary values are removed
+        // let systemCost = 0; 
+        const componentsList = [];
+
+        if (systemType === 'on_grid') {
+            // Removed cost calculations
+            // const estimatedPanelCost = numPanels * COST_PER_550W_PANEL;
+            // const estimatedInverterCost = inverterSizeKw * COST_PER_KW_ON_GRID_INVERTER;
+            // systemCost = estimatedPanelCost + estimatedInverterCost;
+            componentsList.push(`${numPanels} Paneles Solares (aprox. ${panelWattage}W c/u)`);
+            componentsList.push(`1 Inversor On-Grid (aprox. ${inverterSizeKw} kW)`);
+            componentsList.push(`Accesorios y Montaje`);
+        } else if (systemType === 'off_grid') {
+            // Removed cost calculations
+            // const estimatedPanelCost = numPanels * COST_PER_550W_PANEL;
+            const batteryCapacityKwh = dailyKwhNeeded * daysAutonomy * 1.5; // 1.5 factor for depth of discharge and safety
+            // const estimatedBatteryCost = batteryCapacityKwh * COST_PER_KWH_BATTERY_STORAGE;
+            // const estimatedOffGridInverterCost = inverterSizeKw * COST_PER_KW_OFF_GRID_INVERTER;
+            
+            // systemCost = estimatedPanelCost + estimatedOffGridInverterCost + estimatedBatteryCost;
+            componentsList.push(`${numPanels} Paneles Solares (aprox. ${panelWattage}W c/u)`);
+            componentsList.push(`1 Inversor Off-Grid (aprox. ${inverterSizeKw} kW)`);
+            componentsList.push(`${batteryCapacityKwh.toFixed(1)} kWh de Baterías (para ${daysAutonomy} día(s) de autonomía)`);
+            componentsList.push(`Accesorios y Montaje`);
+        }
+
+        // Removed accessory factor for cost
+        // systemCost *= ACCESSORY_FACTOR;
+
+        // Savings calculation now reflects kWh saved, not monetary savings
+        setEstimatedMonthlyKwhSaved(monthlyKwhConsumption.toFixed(2)); 
+        setEstimatedAnnualKwhSaved(annualConsumption.toFixed(2));
+        const co2Avoided = monthlyKwhConsumption * CO2_EMISSION_ELECTRICITY_KG_PER_KWH;
+        setCo2AvoidedMonthly(co2Avoided.toFixed(2));
+
+        setInvestmentEstimate({
+            capacity: `${kwpRequired.toFixed(2)} kWp`,
+            // Removed total_cost
+            // total_cost: systemCost.toFixed(2),
+            components: componentsList,
+            hsp_used: currentHSP
+        });
+
+        // --- Simulated Energy Generation Calculation ---
+        const hspWinter = currentHSP; // Base HSP for winter (shortest day)
+        const hspSpringAutumn = currentHSP * 1.2; // Estimated 20% more for spring/autumn
+        const hspSummer = currentHSP * 1.5; // Estimated 50% more for summer
+
+        const calculateHourlyGeneration = (kwp, hsp) => {
+          const dailyKwh = kwp * hsp;
+          // Simple distribution: 20% at 9h, 60% at 12h, 20% at 15h of the daily generation
+          // This is a simplified model for "simulacro" purposes
+          return {
+            '9h': (dailyKwh * 0.20).toFixed(2),
+            '12h': (dailyKwh * 0.60).toFixed(2),
+            '15h': (dailyKwh * 0.20).toFixed(2)
+          };
+        };
+
+        const simulatedData = [
+          { month: 'Julio (Invierno)', data: calculateHourlyGeneration(kwpRequired, hspWinter) },
+          { month: 'Octubre (Primavera)', data: calculateHourlyGeneration(kwpRequired, hspSpringAutumn) },
+          { month: 'Enero (Verano)', data: calculateHourlyGeneration(kwpRequired, hspSummer) }
+        ];
+        setSimulatedGenerationData(simulatedData);
+        // --- End Simulated Energy Generation Calculation ---
+
+        setShowCalculator(false);
+
+        highlightTimeoutRef.current = setTimeout(() => {
+          if (mainContainerRef.current && logoLinkRef.current && resultsSectionRef.current) {
+            const mainRect = mainContainerRef.current.getBoundingClientRect();
+            const logoRect = logoLinkRef.current.getBoundingClientRect(); 
+            const resultsRect = resultsSectionRef.current.getBoundingClientRect();
+
+            const relativeTop = logoRect.top - mainRect.top;
+            const height = resultsRect.bottom - logoRect.top;
+            const width = mainRect.width;
+            const left = mainRect.left;
+
+            setHighlightOverlayStyle({
+              position: 'absolute',
+              top: `${relativeTop}px`,
+              left: `${left}px`,
+              width: `${width}px`,
+              height: `${height}px`,
+              opacity: 1
+            });
+            setShowHighlightOverlay(true);
+
+            setTimeout(() => {
+              setHighlightOverlayStyle(prev => ({ ...prev, opacity: 0 }));
+              setTimeout(() => setShowHighlightOverlay(false), 500);
+            }, 2000);
+          }
+        }, 5000);
+
+        sendWhatsAppMessage(true);
+      };
+
+      return (
+        <div className="min-h-screen bg-black flex items-center justify-center min-h-screen">
+          <div ref={mainContainerRef} className="bg-gray-900 rounded-xl shadow-2xl p-6 sm:p-10 w-full max-w-md border border-blue-500 relative">
+            {showHighlightOverlay && (
+              <div className="highlight-overlay" style={highlightOverlayStyle}></div>
+            )}
+
+            <a ref={logoLinkRef} href="https://postimg.cc/vg3NYdQ5" target="_blank" rel="noopener noreferrer" className="block w-full text-center mb-1">
+              <img
+                src="https://i.postimg.cc/vg3NYdQ5/LOGO-2024.jpg"
+                alt="Logo REDERAR Energías Renovables"
+                className="w-32 h-auto rounded-lg shadow-md mx-auto" /* Adjusted logo size */
+              />
+            </a>
+            <h1 ref={titleRef} className="text-3xl sm:text-4xl font-bold text-center text-blue-400 mb-0 drop-shadow-lg text-rederar-logo">
+              <i className="fas fa-sun mr-3"></i> La Energía del Sol en tus Manos
+            </h1>
+
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-0 mb-0">
+              <div className="w-full sm:w-1/2 text-center p-2 rounded-lg">
+                <p className="text-sm font-semibold text-white">Energía No Consumida de la Red</p> 
+                <p className="text-3xl font-bold text-lime-400 mt-1">
+                  {estimatedMonthlyKwhSaved} kWh
+                </p>
+              </div>
+              <div className="w-full sm:w-1/2 text-center p-2 rounded-lg">
+                <p className="text-sm font-semibold text-white">CO2 Evitado Mensual</p> 
+                <p className="text-3xl font-bold text-teal-400 mt-1">
+                  {co2AvoidedMonthly} kg
+                </p>
+              </div>
+            </div>
+
+            {/* Simulated Energy Generation Display - Always visible */}
+            <div className="mt-4 p-3 bg-gray-900 rounded-lg text-white border border-gray-700 text-center"> 
+              <p className="font-semibold text-blue-400 mb-2">Simulación de Energía Generada (kWh/día)</p>              
+              {simulatedGenerationData.some(monthData => parseFloat(monthData.data['9h']) > 0 || parseFloat(monthData.data['12h']) > 0 || parseFloat(monthData.data['15h']) > 0) ? (
+                <table className="min-w-full bg-gray-900 text-white rounded-lg overflow-hidden"> 
+                  <thead>
+                    <tr>
+                      <th className="py-2 px-1 text-left text-xs font-semibold uppercase tracking-wider border-b border-gray-700">Mes</th>
+                      <th className="py-2 px-1 text-center text-xs font-semibold uppercase tracking-wider border-b border-gray-700">9h</th>
+                      <th className="py-2 px-1 text-center text-xs font-semibold uppercase tracking-wider border-b border-gray-700">12h</th>
+                      <th className="py-2 px-1 text-center text-xs font-semibold uppercase tracking-wider border-b border-gray-700">15h</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {simulatedGenerationData.map((monthData, index) => (
+                      <tr key={index} className={index % 2 === 0 ? 'bg-gray-800' : 'bg-gray-700'}>
+                        <td className="py-1 px-1 text-left text-sm whitespace-nowrap">{monthData.month}</td>
+                        <td className="py-1 px-1 text-center text-sm">{monthData.data['9h']}</td>
+                        <td className="py-1 px-1 text-center text-sm">{monthData.data['12h']}</td>
+                        <td className="py-1 px-1 text-center text-sm">{monthData.data['15h']}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="text-sm text-white">Realice un cálculo para ver la simulación de energía generada.</p> 
+              )}
+              <p className="text-xs text-white mt-2"> 
+                <i className="fas fa-info-circle mr-1"></i> Valores promedio estimados para un día típico del mes.
+              </p>
+            </div>
+
+            {investmentEstimate && (
+              <div ref={resultsSectionRef} className="mt-1 p-3 bg-gray-900 rounded-lg text-white border border-gray-700 text-center"> 
+                <p className="font-semibold text-green-400 mb-2">Estimación de Componentes:</p> 
+                <p className="text-xl font-bold text-white">Capacidad del Sistema Estimada: {investmentEstimate.capacity}</p> 
+                <p className="text-sm text-white mt-2">Componentes principales:</p> 
+                <ul className="list-disc list-inside text-white mx-auto w-fit"> 
+                  {investmentEstimate.components.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
+                </ul>
+                <p className="text-sm text-green-500 mt-2">
+                  <i className="fas fa-info-circle mr-1"></i> Cálculos basados en {investmentEstimate.hsp_used} Horas Solares Pico (HSP) promedio para el día más corto del año en su región y un sobredimensionamiento del 10%.
+                </p>
+                <p className="text-sm text-green-500 mt-1 font-bold">
+                  <i className="fas fa-exclamation-circle mr-1"></i> IMPORTANTE: Para un dimensionamiento exacto y un presupuesto definitivo, es indispensable un estudio técnico en el punto específico de su dirección y localidad, considerando factores como orientación, inclinación y posibles sombras.
+                </p>
+                <p className="text-sm text-green-500 mt-1"><i className="fas fa-info-circle mr-1"></i> Para un asesoramiento personalizado y un presupuesto detallado, la información se ha enviado a WhatsApp.</p>
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setShowCalculator(!showCalculator);
+                setHasCalculatedAndSent(false);
+              }}
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg flex items-center justify-center mt-2" 
+            >
+              <i className="fas fa-calculator mr-3"></i> CALCULAR MI SISTEMA A ENERGIA SOLAR
+            </button>
+
+            {showCalculator && (
+              <div className="mt-3 p-4 bg-gray-800 rounded-lg border border-gray-700">
+                <p className="text-lg font-semibold text-yellow-300 mb-4 text-center">Calcula tu Potencial Solar</p>
+                
+                {/* Inicio del Cuestionario Obligatorio */}
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="systemType" className="block text-white text-sm font-bold mb-2">Tipo de Sistema:</label> 
+                    <select id="systemType" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={systemType} onChange={(e) => setSystemType(e.target.value)} required>
+                      <option value="">Seleccione</option>
+                      <option value="on_grid">Conectado a Red (On-Grid)</option>
+                      <option value="off_grid">Autónomo (Off-Grid)</option>
+                    </select>
+                  </div>
+
+                  {/* Preguntas comunes para ambos sistemas */}
+                  <div>
+                    <label htmlFor="provinceHSP" className="block text-white text-sm font-bold mb-2">Provincia/Región (para HSP):</label> 
+                    <select id="provinceHSP" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={selectedProvinceHSP} onChange={(e) => setSelectedProvinceHSP(e.target.value)} required>
+                      <option value="">Seleccione su provincia/región</option>
+                      {Object.keys(HSP_DATA).filter(key => key !== 'Default').sort().map((province) => (
+                        <option key={province} value={province}>{province} ({HSP_DATA[province]} HSP aprox.)</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="locality" className="block text-white text-sm font-bold mb-2">Localidad:</label> 
+                    <input type="text" id="locality" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={locality} onChange={(e) => setLocality(e.target.value)} placeholder="Ej: Rosario" required />
+                  </div>
+                  <div>
+                    <label htmlFor="hasNorthShadows" className="block text-white text-sm font-bold mb-2">¿Tiene sombras importantes mirando al norte?</label> 
+                    <select id="hasNorthShadows" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={hasNorthShadows} onChange={(e) => setHasNorthShadows(e.target.value)} required>
+                      <option value="">Seleccione</option>
+                      <option value="yes">Sí</option>
+                      <option value="no">No</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="roofType" className="block text-white text-sm font-bold mb-2">Tipo de techo o espacio disponible para paneles:</label> 
+                    <select id="roofType" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={roofType} onChange={(e) => setRoofType(e.target.value)} required>
+                      <option value="">Seleccione</option>
+                      <option value="Techo de chapa">Techo de chapa</option>
+                      <option value="Techo de losa">Techo de losa</option>
+                      <option value="Techo de tejas">Techo de tejas</option>
+                      <option value="Espacio en suelo">Espacio en suelo</option>
+                      <option value="No estoy seguro">No estoy seguro</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="availableSpace" className="block text-white text-sm font-bold mb-2">Espacio disponible para paneles (ej: 10x5 metros, o "patio grande"):</label> 
+                    <input type="text" id="availableSpace" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={availableSpace} onChange={(e) => setAvailableSpace(e.target.value)} placeholder="Ej: 10x5 metros" required />
+                  </div>
+                  <div>
+                    <label htmlFor="roofCondition" className="block text-white text-sm font-bold mb-2">Condición o antigüedad del techo/estructura:</label> 
+                    <select id="roofCondition" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={roofCondition} onChange={(e) => setRoofCondition(e.target.value)} required>
+                      <option value="">Seleccione</option>
+                      <option value="Nuevo (menos de 5 años)">Nuevo (menos de 5 años)</option>
+                      <option value="Bueno (5-15 años)">Bueno (5-15 años)</option>
+                      <option value="Antiguo (más de 15 años)">Antiguo (más de 15 años)</option>
+                      <option value="No estoy seguro">No estoy seguro</option>
+                    </select>
+                  </div>
+
+                  {systemType === 'on_grid' && (
+                    <div className="space-y-4">
+                      <p className="text-sm text-white mb-2 font-bold"><i className="fas fa-info-circle mr-1"></i> Por favor, ingrese los valores de consumo bimestral directamente de su factura de electricidad:</p>
+                      {/* Bimonthly Consumption Inputs - Only for On-Grid */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label htmlFor="janFebConsumption" className="block text-white text-sm font-bold mb-2">Consumo Ene-Feb (kWh):</label> 
+                          <input type="number" id="janFebConsumption" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={janFebConsumption} onChange={(e) => setJanFebConsumption(e.target.value)} placeholder="Ej: 100" min="0" required />
+                        </div>
+                        <div>
+                          <label htmlFor="marAprConsumption" className="block text-white text-sm font-bold mb-2">Consumo Mar-Abr (kWh):</label> 
+                          <input type="number" id="marAprConsumption" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={marAprConsumption} onChange={(e) => setMarAprConsumption(e.target.value)} placeholder="Ej: 120" min="0" required />
+                        </div>
+                        <div>
+                          <label htmlFor="mayJunConsumption" className="block text-white text-sm font-bold mb-2">Consumo May-Jun (kWh):</label> 
+                          <input type="number" id="mayJunConsumption" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={mayJunConsumption} onChange={(e) => setMayJunConsumption(e.target.value)} placeholder="Ej: 150" min="0" required />
+                        </div>
+                        <div>
+                          <label htmlFor="julAugConsumption" className="block text-white text-sm font-bold mb-2">Consumo Jul-Ago (kWh):</label> 
+                          <input type="number" id="julAugConsumption" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={julAugConsumption} onChange={(e) => setJulAugConsumption(e.target.value)} placeholder="Ej: 130" min="0" required />
+                        </div>
+                        <div>
+                          <label htmlFor="sepOctConsumption" className="block text-white text-sm font-bold mb-2">Consumo Sep-Oct (kWh):</label> 
+                          <input type="number" id="sepOctConsumption" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={sepOctConsumption} onChange={(e) => setSepOctConsumption(e.target.value)} placeholder="Ej: 110" min="0" required />
+                        </div>
+                        <div>
+                          <label htmlFor="novDecConsumption" className="block text-white text-sm font-bold mb-2">Consumo Nov-Dic (kWh):</label> 
+                          <input type="number" id="novDecConsumption" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={novDecConsumption} onChange={(e) => setNovDecConsumption(e.target.value)} placeholder="Ej: 90" min="0" required />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label htmlFor="phaseType" className="block text-white text-sm font-bold mb-2">Tipo de Conexión:</label> 
+                    <select id="phaseType" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={phaseType} onChange={(e) => setPhaseType(e.target.value)} required>
+                      <option value="">Seleccione</option>
+                      <option value="monofasica">Monofásica</option>
+                      <option value="trifasica">Trifásica</option>
+                    </select>
+                  </div>
+
+                  {systemType === 'off_grid' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label htmlFor="autonomyDays" className="block text-white text-sm font-bold mb-2">Días de autonomía deseados (por ejemplo, 1, 2 o 3 días sin sol):</label> 
+                        <input type="number" id="autonomyDays" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700" value={autonomyDays} onChange={(e) => setAutonomyDays(e.target.value)} placeholder="Ej: 1" min="1" required />
+                      </div>
+                      <div>
+                        <label htmlFor="appliancesToPower" className="block text-white text-sm font-bold mb-2">Detalle electrodomésticos y otros elementos a alimentar:</label> 
+                        <p className="text-xs text-white mb-2">Formato: `Nombre: Horas/día, Watts;` (ej: `Heladera: 24, 150; Luces LED: 5, 10x5; TV: 4, 80`)</p> 
+                        <textarea id="appliancesToPower" className="shadow appearance-none border rounded w-full py-2 px-3 text-white leading-tight focus:outline-none focus:shadow-outline bg-gray-700 h-24" value={appliancesToPower} onChange={(e) => setAppliancesToPower(e.target.value)} placeholder="Ej: Heladera: 24, 150; Luces LED: 5, 10x5; TV: 4, 80" required></textarea>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Fin del Cuestionario Obligatorio */}
+
+                {calculationError && <p className="text-red-400 text-sm mt-4 text-center">{calculationError}</p>}
+                <button onClick={calculatePhotovoltaic} className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Calcular</button>
+              </div>
+            )}
+            <button
+              onClick={() => sendWhatsAppMessage(false)}
+              disabled={hasCalculatedAndSent}
+              className={`w-full bg-green-500 text-white font-bold py-3 px-6 rounded-lg text-lg flex items-center justify-center mt-2 ${hasCalculatedAndSent ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-600 transform hover:scale-102 shadow-lg hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-75'}`}
+            >
+              <i className="fab fa-whatsapp mr-3 text-xl"></i> {hasCalculatedAndSent ? 'Datos Enviados a WhatsApp' : 'Enviar datos a WhatsApp'}
+            </button>
+            <p className="text-center text-white text-xs mt-2">Datos de simulación. Los valores reales pueden variar.</p> 
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
